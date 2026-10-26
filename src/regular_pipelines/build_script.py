@@ -1,6 +1,7 @@
 from pathlib import Path
 import ast
-import re
+
+from .parameter_exchange import replace_parameters
 
 
 class CallVisitor(ast.NodeVisitor):
@@ -62,29 +63,6 @@ def gather_dependencies(start_functions, function_defs):
     return needed
 
 
-def remove_existing_functions(text, function_names):
-    """
-    Remove functions that are going to be inlined so we don't duplicate them.
-    """
-    tree = ast.parse(text)
-
-    lines = text.splitlines()
-
-    to_remove = []
-
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if node.name in function_names:
-                start = node.lineno - 1
-                end = node.end_lineno
-                to_remove.append((start, end))
-
-    for start, end in reversed(to_remove):
-        del lines[start:end]
-
-    return "\n".join(lines)
-
-
 def build_header(imports, function_defs, needed_functions):
     pieces = []
 
@@ -131,25 +109,13 @@ def build_script(
         automatically included.
     """
 
-    text, tree, function_defs, imports = parse_source(source_script)
+    text, _, function_defs, imports = parse_source(source_script)
 
     ############################################################
     # Replace parameters
     ############################################################
 
-    for param, value in replacements.items():
-
-        pattern = rf"^(\s*{re.escape(param)}\s*=\s*).*$"
-
-        text, count = re.subn(
-            pattern,
-            lambda m: m.group(1) + repr(value),
-            text,
-            flags=re.MULTILINE,
-        )
-
-        if count == 0:
-            print(f"Warning: {param} not found")
+    text = replace_parameters(text, replacements)
 
     ############################################################
     # Inline functions
@@ -167,11 +133,6 @@ def build_script(
             function_defs,
             needed,
         )
-
-        # body = remove_existing_functions( # removes existing def which I dont want 
-        #     text,
-        #     needed,
-        # )
 
         text = header + "\n\n" + text
 

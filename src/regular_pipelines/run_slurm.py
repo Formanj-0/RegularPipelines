@@ -5,8 +5,10 @@ import threading
 import time
 from collections import deque
 
-# Absolute path, so it doesn't depend on where sbatch is called from
-SLURM_OUTPUT_DIR = os.path.abspath("slurm_output")
+from .prepare import prepare_script
+
+# Resolved against the cwd at submit time (not import time)
+SLURM_OUTPUT_DIR = "slurm_output"
 
 ACTIVE_STATES = {
     "PENDING", "CONFIGURING", "RUNNING", "COMPLETING", "SUSPENDED",
@@ -92,38 +94,19 @@ def run_script(
     function_path: str = None,
     slurm_script="python_runner.sh",
     output_dir=SLURM_OUTPUT_DIR,
+    alias="mp",
 ):
-    if args is None:
-        args = {}
+    """Build the standalone script for one dataset and submit it with sbatch."""
 
     script_name = os.path.basename(pipeline_path)
 
-    if results_name:
-        destination_path = os.path.join(dataset_path, results_name, script_name)
-    else:
-        destination_path = os.path.join(dataset_path, script_name)
-
-    os.makedirs(os.path.dirname(destination_path), exist_ok=True)
-
-    strs_to_delete = [
-        "sys.path.append(os.path.join(os.getcwd(), '..'))",
-        "import src as mp",
-        "mp.",
-    ]
-
-    # Create the standalone pipeline script
-    mp.inline_mp_modules(pipeline_path, destination_path, function_path)
-
-    mp.parameter_exchange(
-        destination_path,
-        destination_path,
-        {
-            "DATASET_PATH": dataset_path,
-            "RESULTS_NAME": results_name,
-            "USE_NAPARI": False,
-            **args,
-        },
-        strs_to_delete,
+    destination_path = prepare_script(
+        pipeline_path,
+        dataset_path,
+        results_name=results_name,
+        args=args,
+        function_path=function_path,
+        alias=alias,
     )
 
     # ---------------------------------------------------------
@@ -135,6 +118,7 @@ def run_script(
         raise FileNotFoundError(f"SLURM script not found: {slurm_script}")
     _check_line_endings(slurm_script)
 
+    output_dir = os.path.abspath(output_dir)
     os.makedirs(output_dir, exist_ok=True)
 
     dataset_name = os.path.basename(os.path.normpath(dataset_path))
@@ -349,8 +333,17 @@ def run_scripts(
     slurm_script="python_runner.sh",
     output_dir=SLURM_OUTPUT_DIR,
     lost_after=300,
+    alias="mp",
 ):
-    """Start the jobs and return immediately. Returns a SlurmBatch handle."""
+    """
+    Start the jobs and return immediately. Returns a SlurmBatch handle:
+
+        batch             # one-line progress
+        batch.status()    # what's running and in which state
+        batch.results     # finished jobs so far
+        batch.cancel()    # scancel everything still running
+        batch.wait()      # block until done
+    """
     return SlurmBatch(
         dataset_paths=list(dataset_paths),
         num_runners=num_runners,
@@ -363,11 +356,6 @@ def run_scripts(
             function_path=function_path,
             slurm_script=slurm_script,
             output_dir=output_dir,
+            alias=alias,
         ),
     )
-
-# batch             # one-line progress
-# batch.status()    # what's running and in which state
-# batch.results     # finished jobs so far
-# batch.cancel()    # scancel everything still running
-# batch.wait()      # block until done, if you ever want to

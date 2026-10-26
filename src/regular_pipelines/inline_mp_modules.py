@@ -6,6 +6,7 @@ def inline_mp_modules(
     source_script,
     output_script,
     functions_dir,
+    alias="mp",
 ):
     """
     Prepend the source files corresponding to all mp.function(...)
@@ -21,6 +22,10 @@ def inline_mp_modules(
 
     functions_dir : str or Path
         Directory containing __init__.py and module files.
+
+    alias : str, optional
+        Name the host package is imported as in the script
+        (``import src as mp`` -> ``"mp"``).
     """
 
     functions_dir = Path(functions_dir)
@@ -29,11 +34,11 @@ def inline_mp_modules(
     init_text = (functions_dir / "__init__.py").read_text()
 
     # ---------------------------------------------------------
-    # Find all mp.function(...)
+    # Find all <alias>.function(...)
     # ---------------------------------------------------------
 
     called_functions = sorted(set(
-        re.findall(r"\bmp\.([A-Za-z_]\w*)\s*\(", script_text)
+        re.findall(rf"\b{re.escape(alias)}\.([A-Za-z_]\w*)\s*\(", script_text)
     ))
 
     print("Functions found:")
